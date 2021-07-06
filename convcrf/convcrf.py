@@ -78,13 +78,13 @@ default_conf = {
     "pyinn": False
 }
 
-# Config used for test cases on 10 x 10 pixel greyscale inpu
+# Config used for test cases on 10 x 10 pixel greyscale input
 test_config = {
     'filter_size': 5,
     'blur': 1,
     'merge': False,
     'norm': 'sym',
-    'trainable': False,
+    'trainable': True,
     'weight': 'scalar',
     "unary_weight": 1,
     "weight_init": 0.5,
@@ -119,7 +119,7 @@ class GaussCRF(nn.Module):
         "Connected CRFs with Gaussian Edge Pots" (arxiv.org/abs/1210.5644)
     """
 
-    def __init__(self, conf, shape, nclasses=None, use_gpu=True):
+    def __init__(self, conf, shape, nclasses=None):
         super(GaussCRF, self).__init__()
 
         self.conf = conf
@@ -163,7 +163,7 @@ class GaussCRF(nn.Module):
 
         self.CRF = ConvCRF(
             shape, nclasses, mode="col", conf=conf,
-            use_gpu=use_gpu, filter_size=conf['filter_size'],
+            use_gpu=True, filter_size=conf['filter_size'],
             norm=conf['norm'], blur=conf['blur'], trainable=conf['trainable'],
             convcomp=conf['convcomp'], weight=weight,
             final_softmax=conf['final_softmax'],
@@ -230,14 +230,14 @@ class GaussCRF(nn.Module):
             return torch.stack(bs * [Variable(self.mesh) * sdims])
 
 
-def show_memusage(device=0, name=""):
-    import gpustat
-    gc.collect()
-    gpu_stats = gpustat.GPUStatCollection.new_query()
-    item = gpu_stats.jsonify()["gpus"][device]
-
-    logging.info("{:>5}/{:>5} MB Usage at {}".format(
-        item["memory.used"], item["memory.total"], name))
+# def show_memusage(device=0, name=""):
+#     import gpustat
+#     gc.collect()
+#     gpu_stats = gpustat.GPUStatCollection.new_query()
+#     item = gpu_stats.jsonify()["gpus"][device]
+#
+#     logging.info("{:>5}/{:>5} MB Usage at {}".format(
+#         item["memory.used"], item["memory.total"], name))
 
 
 def exp_and_normalize(features, dim=0):
@@ -280,6 +280,8 @@ class MessagePassingCol():
                  norm="sym",
                  filter_size=5, clip_edges=0, use_gpu=False,
                  blur=1, matmul=False, verbose=False, pyinn=False):
+
+        assert(use_gpu)
 
         if not norm == "sym" and not norm == "none":
             raise NotImplementedError
@@ -419,8 +421,8 @@ class MessagePassingCol():
         else:
             npixels = self.npixels
 
-        if self.verbose:
-            show_memusage(name="Init")
+        # if self.verbose:
+        #     show_memusage(name="Init")
 
         if self.pyinn:
             input_col = P.im2col(input, self.filter_size, 1, self.span)
@@ -441,20 +443,20 @@ class MessagePassingCol():
 
         k_sqr = self.filter_size * self.filter_size
 
-        if self.verbose:
-            show_memusage(name="Im2Col")
-
+        # if self.verbose:
+        #     show_memusage(name="Im2Col")
+        #
         product = gaussian * input_col
-        if self.verbose:
-            show_memusage(name="Product")
+        # if self.verbose:
+        #     show_memusage(name="Product")
 
         product = product.view([bs, num_channels,
                                 k_sqr, npixels[0], npixels[1]])
 
         message = product.sum(2)
 
-        if self.verbose:
-            show_memusage(name="FinalNorm")
+        # if self.verbose:
+        #     show_memusage(name="FinalNorm")
 
         if self.blur > 1:
             in_0 = self.npixels[0]
@@ -556,6 +558,8 @@ class ConvCRF(nn.Module):
     def add_pairwise_energies(self, feat_list, compat_list, merge):
         assert(len(feat_list) == len(compat_list))
 
+        assert(self.use_gpu)
+
         self.kernel = MessagePassingCol(
             feat_list=feat_list,
             compat_list=compat_list,
@@ -563,7 +567,7 @@ class ConvCRF(nn.Module):
             npixels=self.npixels,
             filter_size=self.filter_size,
             nclasses=self.nclasses,
-            use_gpu=self.use_gpu,
+            use_gpu=True,
             norm=self.norm,
             verbose=self.verbose,
             blur=self.blur,

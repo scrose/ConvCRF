@@ -12,7 +12,7 @@ import os
 import sys
 
 import numpy as np
-import imageio
+import cv2
 # import scipy as scp
 # import scipy.misc
 
@@ -45,12 +45,6 @@ logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
 
 def do_crf_inference(image, unary, args):
 
-    if args.pyinn or not hasattr(torch.nn.functional, 'unfold'):
-        # pytorch 0.3 or older requires pyinn.
-        args.pyinn = True
-        # Cheap and easy trick to make sure that pyinn is loadable.
-        import pyinn
-
     # get basic hyperparameters
     num_classes = unary.shape[2]
     shape = image.shape[0:2]
@@ -80,24 +74,20 @@ def do_crf_inference(image, unary, args):
     image = image.transpose(2, 0, 1)  # shape: [3, hight, width]
     # Add batch dimension to image: [1, 3, height, width]
     image = image.reshape([1, 3, shape[0], shape[1]])
-    img_var = Variable(torch.Tensor(image))
+    img_var = Variable(torch.Tensor(image)).cuda()
 
     unary = unary.transpose(2, 0, 1)  # shape: [3, hight, width]
     # Add batch dimension to unary: [1, 21, height, width]
     unary = unary.reshape([1, num_classes, shape[0], shape[1]])
-    unary_var = Variable(torch.Tensor(unary))
+    unary_var = Variable(torch.Tensor(unary)).cuda()
 
     logging.info("Build ConvCRF.")
     ##
     # Create CRF module
-    gausscrf = convcrf.GaussCRF(conf=config, shape=shape, nclasses=num_classes,
-                                use_gpu=not args.cpu)
-
-    # move to GPU if requested
-    if not args.cpu:
-        img_var = img_var.cuda()
-        unary_var = unary_var.cuda()
-        gausscrf.cuda()
+    gausscrf = convcrf.GaussCRF(conf=config, shape=shape, nclasses=num_classes)
+    # Cuda computation is required.
+    # A CPU implementation of our message passing is not provided.
+    gausscrf.cuda()
 
     logging.info("Start Computation.")
     # Perform CRF inference
@@ -182,7 +172,7 @@ def plot_results(image, unary, prediction, label, args):
             (image, coloured_label, coloured_unary, coloured_crf),
             axis=1)
 
-        imageio.imwrite(args.output, out_img.astype(np.uint8))
+        cv2.imwrite(args.output, out_img.astype(np.uint8))
 
         logging.info("Plot has been saved to {}".format(args.output))
 
@@ -216,9 +206,6 @@ def get_parser():
                         help="Use pyinn based Cuda implementation"
                              "for message passing.")
 
-    parser.add_argument('--cpu', action='store_true',
-                        help="Run on CPU instead of GPU.")
-
     # parser.add_argument('--compare', action='store_true')
     # parser.add_argument('--embed', action='store_true')
 
@@ -232,11 +219,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Load data
-    image = imageio.imread(args.image)
-    label = imageio.imread(args.label)
+    image = cv2.imread(args.image)
+    label = cv2.imread(args.label)
 
     # Produce unary by adding noise to label
-    unary = synthetic.augment_label(label, num_classes=21)
     # Compute CRF inference
     prediction = do_crf_inference(image, unary, args)
     # Plot output
